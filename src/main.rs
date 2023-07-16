@@ -1,0 +1,385 @@
+fn main() {
+    let mut db = Database(vec![]);
+
+    let repr = {
+        let mut arr = [[false; SIZE]; SIZE];
+        arr[1][1] = true;
+        Board(arr)
+    };
+    let mask = {
+        let mut arr = [[false; SIZE]; SIZE];
+        arr[1][0] = true;
+        arr[0][1] = true;
+        arr[1][2] = true;
+        arr[2][1] = true;
+        Board(arr)
+    };
+    let trivial_polyomino = Polyomino {
+        square_count: 1,
+        dimension: (3, 3),
+        repr,
+        mask,
+    };
+    db.add_or_reject(&trivial_polyomino);
+
+    let mut queue: VecDeque<_> = [trivial_polyomino].into();
+
+    loop {
+        let p = queue.pop_front().unwrap();
+
+        if p.square_count > LIMIT {
+            break;
+        }
+
+        let declinaison = decline(&p);
+
+        for p in declinaison.into_iter() {
+            let smallest = smallest_rotation(p);
+
+            // println!("Smallest found:");
+            // println!("{smallest:?}");
+
+            if db.add_or_reject(&smallest) {
+                // println!("Not seen before");
+                queue.push_back(smallest)
+            }
+        }
+    }
+
+    for (i, map) in db.0.iter().enumerate() {
+        let cnt: u128 = map.iter().map(|(_, set)| set.len() as u128).sum();
+
+        let squares = i + 1;
+        println!("With {squares} squares: {cnt}")
+    }
+}
+
+const SIZE: usize = 32;
+const LIMIT: u8 = 10;
+
+#[repr(transparent)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
+struct Board([[bool; SIZE]; SIZE]);
+
+use std::fmt;
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    fmt::Debug,
+    iter::repeat,
+    ops::{Deref, DerefMut},
+};
+
+impl Deref for Board {
+    type Target = [[bool; SIZE]; SIZE];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Board {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Board {
+    fn sub(&mut self, other: &Self) {
+        for i in 0..SIZE {
+            for j in 0..SIZE {
+                if other[i][j] {
+                    self[i][j] = false;
+                }
+            }
+        }
+    }
+}
+
+impl Debug for Polyomino {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for j in 0..8 {
+            for i in 0..8 {
+                let str = {
+                    if self.repr[i][j] {
+                        if self.mask[i][j] {
+                            "!"
+                        } else {
+                            "O"
+                        }
+                    } else {
+                        if self.mask[i][j] {
+                            "+"
+                        } else {
+                            "."
+                        }
+                    }
+                };
+
+                let to_print = if i < self.dimension.0 as usize && j < self.dimension.1 as usize {
+                    format!("\x1b[32m{str}\x1b[m")
+                } else {
+                    format!("\x1b[31m{str}\x1b[m")
+                };
+
+                f.write_str(&to_print).unwrap();
+            }
+            f.write_str("\n").unwrap();
+        }
+
+        Ok(())
+    }
+}
+
+/// Trigonometric rotation in degrees
+enum Rotation {
+    R0,
+    R90,
+    R180,
+    R270,
+}
+
+fn rotate_board(b: &Board, dim: (u8, u8), r: &Rotation) -> Board {
+    let mut arr = [[false; SIZE]; SIZE];
+
+    match r {
+        Rotation::R0 => return b.clone(),
+        Rotation::R90 => {
+            let dim = (dim.1 as usize, dim.0 as usize);
+            for i in 0..dim.0 {
+                for j in 0..dim.1 {
+                    arr[i][j] = b[j][dim.0 - i - 1];
+                }
+            }
+        }
+        Rotation::R180 => {
+            let dim = (dim.0 as usize, dim.1 as usize);
+            for i in 0..dim.0 {
+                for j in 0..dim.1 {
+                    arr[i][j] = b[dim.0 - i - 1][dim.1 - j - 1];
+                }
+            }
+        }
+        Rotation::R270 => {
+            let dim = (dim.1 as usize, dim.0 as usize);
+            for i in 0..dim.0 {
+                for j in 0..dim.1 {
+                    arr[i][j] = b[dim.1 - j - 1][i];
+                }
+            }
+        }
+    }
+
+    Board(arr)
+}
+
+#[derive(Copy, Clone)]
+struct Polyomino {
+    square_count: u8,
+    dimension: (u8, u8),
+    repr: Board,
+    mask: Board,
+}
+
+impl Polyomino {
+    fn add_square(&mut self, x: usize, y: usize, anti_mask: &Board) {
+        self.square_count += 1;
+        // IDEA: localize addition of a square rather than subtracting a whole mask
+        self.repr[x][y] = true;
+
+        let (x, y, anti_mask) = self.shift(x, y, anti_mask); // x and y are now guaranteed to be in [(1,1), dimension]
+        self.mask[x + 1][y] = true;
+        self.mask[x - 1][y] = true;
+        self.mask[x][y + 1] = true;
+        self.mask[x][y - 1] = true;
+        self.mask.sub(&self.repr);
+        self.mask.sub(&anti_mask);
+    }
+
+    fn shift(&mut self, mut x: usize, mut y: usize, anti_mask: &Board) -> (usize, usize, Board) {
+        // Adjust the dimension & boards if the extended square is on the board (so that the mask is still inside the boundaries)
+        // IDEA: make mask boudaries larger, such that each boundary of the representation always has a square touching it
+
+        let mut anti_mask = anti_mask.clone();
+
+        // This take into account the case where self.dimension.{0, 1} == 1
+        if x + 1 == self.dimension.0 as usize {
+            // augment the X boundary
+            self.dimension.0 += 1;
+        }
+        if x == 0 {
+            self.repr.copy_within(0..SIZE - 1, 1);
+            self.mask.copy_within(0..SIZE - 1, 1);
+            anti_mask.copy_within(0..SIZE - 1, 1);
+            self.repr[0] = [false; SIZE];
+            self.mask[0] = [false; SIZE];
+            anti_mask[0] = [false; SIZE];
+
+            self.dimension.0 += 1;
+            x += 1;
+        }
+        if y + 1 == self.dimension.1 as usize {
+            self.dimension.1 += 1;
+        }
+        if y == 0 {
+            for i in 0..SIZE {
+                self.repr[i].copy_within(0..SIZE - 1, 1);
+                self.mask[i].copy_within(0..SIZE - 1, 1);
+                anti_mask[i].copy_within(0..SIZE - 1, 1);
+                self.repr[i][0] = false;
+                self.mask[i][0] = false;
+                anti_mask[i][0] = false;
+            }
+
+            self.dimension.1 += 1;
+            y += 1;
+        }
+
+        (x, y, anti_mask)
+    }
+}
+
+/// Return all polyominoes that can be created by adding a square to this polyomino, excluding positions out of the mask
+fn decline(p: &Polyomino) -> Vec<Polyomino> {
+    let mut polyominoes = vec![];
+    // println!("From polyomino:");
+    // println!("{p:?}");
+
+    let mut anti_mask = Board([[false; SIZE]; SIZE]);
+    for i in 0..SIZE {
+        for j in 0..SIZE {
+            if p.mask[i][j] {
+                // add a new polyomino
+                let mut new_p = p.clone();
+                new_p.add_square(i, j, &anti_mask);
+                anti_mask[i][j] = true;
+
+                // println!("	- declined polyomino (added at {i},{j}):");
+                // println!("{new_p:?}");
+                polyominoes.push(new_p);
+            }
+        }
+    }
+
+    // FIXME: doesn't work when reordering polyominoes,
+    // due to the mask being more generic for the first ones generated
+    // IDEA: reset the mask if the polyomino was not seen before (but the mask would not be useful then)
+    //      Or take the mask with the higher count among rotations,
+    //      but this means that all polyomnioes of some square count must be processed before starting the next square count
+    // polyominoes.reverse();
+    polyominoes
+}
+
+fn smallest_rotation(p: Polyomino) -> Polyomino {
+    // Take smallest dimension first
+    if p.dimension.0 < p.dimension.1 {
+        // Only compare rotation 0 and rotation 180
+        let rotated_board = rotate_board(&p.repr, p.dimension, &Rotation::R180);
+        if p.repr < rotated_board {
+            p
+        } else {
+            Polyomino {
+                square_count: p.square_count,
+                dimension: p.dimension,
+                repr: rotated_board,
+                mask: rotate_board(&p.mask, p.dimension, &Rotation::R180),
+            }
+        }
+    } else if p.dimension.0 > p.dimension.1 {
+        // Compare rotations 90 and 270
+        let board_90 = rotate_board(&p.repr, p.dimension, &Rotation::R90);
+        let board_270 = rotate_board(&p.repr, p.dimension, &Rotation::R270);
+        if board_90 < board_270 {
+            Polyomino {
+                square_count: p.square_count,
+                dimension: (p.dimension.1, p.dimension.0),
+                repr: board_90,
+                mask: rotate_board(&p.mask, p.dimension, &Rotation::R90),
+            }
+        } else {
+            Polyomino {
+                square_count: p.square_count,
+                dimension: (p.dimension.1, p.dimension.0),
+                repr: board_270,
+                mask: rotate_board(&p.mask, p.dimension, &Rotation::R270),
+            }
+        }
+    } else {
+        // Dimensions are equal
+        // Compare all rotations
+        let board_90 = rotate_board(&p.repr, p.dimension, &Rotation::R90);
+        let board_180 = rotate_board(&p.repr, p.dimension, &Rotation::R180);
+        let board_270 = rotate_board(&p.repr, p.dimension, &Rotation::R270);
+
+        // Comparison by pairs : (p, board_180) and (board_90, board_270)
+        let (smallest_1, rot1) = {
+            if p.repr < board_180 {
+                (p.repr, Rotation::R0)
+            } else {
+                (board_180, Rotation::R180)
+            }
+        };
+        let (smallest_2, rot2) = {
+            if board_90 < board_270 {
+                (board_90, Rotation::R90)
+            } else {
+                (board_270, Rotation::R270)
+            }
+        };
+
+        // Then compare the smallest of each pair
+        if smallest_1 < smallest_2 {
+            Polyomino {
+                square_count: p.square_count,
+                dimension: p.dimension,
+                repr: smallest_1,
+                mask: rotate_board(&p.mask, p.dimension, &rot1),
+            }
+        } else {
+            Polyomino {
+                square_count: p.square_count,
+                dimension: p.dimension,
+                repr: smallest_2,
+                mask: rotate_board(&p.mask, p.dimension, &rot2),
+            }
+        }
+    }
+}
+
+#[repr(transparent)]
+struct Database(Vec<BTreeMap<(u8, u8), HashSet<Board>>>);
+
+fn get_mut_or<K, V, F>(map: &mut BTreeMap<K, V>, key: K, f: F) -> &mut V
+where
+    K: Ord + Copy,
+    F: Fn() -> V,
+{
+    if !map.contains_key(&key) {
+        map.insert(key, f());
+    }
+
+    map.get_mut(&key).unwrap()
+}
+
+impl Database {
+    /// Returns true if the Polyomino was not seen before
+    /// Returns false otherwise
+    fn add_or_reject(&mut self, p: &Polyomino) -> bool {
+        if self.0.len() < p.square_count as usize {
+            self.0
+                .extend(repeat(BTreeMap::new()).take(p.square_count as usize - self.0.len()))
+        }
+
+        let set = get_mut_or(
+            &mut self.0[p.square_count as usize - 1],
+            p.dimension,
+            || HashSet::new(),
+        );
+
+        if set.contains(&p.repr) {
+            false
+        } else {
+            set.insert(p.repr);
+            true
+        }
+    }
+}
