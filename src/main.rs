@@ -32,9 +32,10 @@ fn main() {
         }
     }
 
-    for (i, cnt) in db.counts().enumerate() {
+    for (i, (cnt, stat)) in db.counts().zip(db.stats()).enumerate() {
         let squares = i + 1;
-        println!("With {squares} squares: {cnt}")
+        let redundant = stat - cnt;
+        println!("With {squares} squares: {cnt} ({redundant} redundancies)")
     }
 }
 

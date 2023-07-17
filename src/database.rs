@@ -10,10 +10,12 @@ use crate::{board::Board, polyomino::Polyomino};
 /// - the number of polyominoes with some square amount, if all have been processed
 /// - the queue of unprocessed polyominoes of the last square amount
 /// - the cache of polyominoes for the next amount
+/// - stats by square amount
 pub struct Database {
     counts: Vec<u128>,
     queue: VecDeque<Polyomino>,
     cache: BTreeMap<(u8, u8), HashMap<Board, Board>>,
+    stats: Vec<u128>,
 }
 
 fn treemap_get_mut_or<K, V, F>(map: &mut BTreeMap<K, V>, key: K, f: F) -> &mut V
@@ -48,6 +50,7 @@ impl Database {
             counts: vec![1],
             queue,
             cache: BTreeMap::new(),
+            stats: vec![1, 0],
         }
     }
 
@@ -59,6 +62,7 @@ impl Database {
     pub fn register(&mut self, p: Polyomino) {
         let mut map = treemap_get_mut_or(&mut self.cache, p.dimension, || HashMap::new());
 
+        *self.stats.last_mut().unwrap() += 1;
         let mask = hashmap_get_mut_or(&mut map, p.repr, p.mask);
         *mask |= p.mask;
     }
@@ -86,6 +90,7 @@ impl Database {
         }
 
         self.counts.push(self.queue.len() as u128);
+        self.stats.push(0);
     }
 
     /// Returns Some number of polyominoes with [n] squares,
@@ -101,5 +106,9 @@ impl Database {
     // Return an iterator on all counts
     pub fn counts(&self) -> std::slice::Iter<'_, u128> {
         self.counts.iter()
+    }
+
+    pub fn stats(&self) -> std::slice::Iter<'_, u128> {
+        self.stats.iter()
     }
 }
