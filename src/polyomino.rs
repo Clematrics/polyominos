@@ -47,6 +47,38 @@ impl Debug for Polyomino {
 }
 
 impl Polyomino {
+    pub fn trivial() -> Self {
+        let repr = {
+            let mut arr = [[false; SIZE]; SIZE];
+            arr[1][1] = true;
+            Board(arr)
+        };
+        let mask = {
+            let mut arr = [[false; SIZE]; SIZE];
+            arr[1][0] = true;
+            arr[0][1] = true;
+            arr[1][2] = true;
+            arr[2][1] = true;
+            Board(arr)
+        };
+
+        Self {
+            square_count: 1,
+            dimension: (3, 3),
+            repr,
+            mask,
+        }
+    }
+
+    pub fn from(dimension: (u8, u8), repr: Board, mask: Board) -> Self {
+        Self {
+            square_count: repr.count() as u8,
+            dimension,
+            repr,
+            mask,
+        }
+    }
+
     pub fn add_square(&mut self, x: usize, y: usize, anti_mask: &Board) {
         self.square_count += 1;
         // IDEA: localize addition of a square rather than subtracting a whole mask

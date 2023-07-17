@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{BitOrAssign, Deref, DerefMut};
 
 use crate::rotation::Rotation;
 
@@ -33,6 +33,22 @@ impl Board {
                 if other[i][j] {
                     self[i][j] = false;
                 }
+            }
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.iter()
+            .map(|column| column.iter().filter(|v| **v).count())
+            .sum()
+    }
+}
+
+impl BitOrAssign for Board {
+    fn bitor_assign(&mut self, rhs: Self) {
+        for i in 0..SIZE {
+            for j in 0..SIZE {
+                self[i][j] |= rhs[i][j]
             }
         }
     }
