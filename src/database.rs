@@ -30,15 +30,17 @@ where
     map.get_mut(&key).unwrap()
 }
 
-fn hashmap_get_mut_or<K, V>(map: &mut HashMap<K, V>, key: K, v: V) -> &mut V
+/// Returns None if the value is added, returns the value already stored otherwise
+fn hashmap_get_mut_or<K, V>(map: &mut HashMap<K, V>, key: K, v: V) -> Option<&mut V>
 where
     K: Ord + Copy + Hash,
 {
     if !map.contains_key(&key) {
         map.insert(key, v);
+        None
+    } else {
+        map.get_mut(&key)
     }
-
-    map.get_mut(&key).unwrap()
 }
 
 impl Database {
@@ -63,8 +65,11 @@ impl Database {
         let mut map = treemap_get_mut_or(&mut self.cache, p.dimension, || HashMap::new());
 
         *self.stats.last_mut().unwrap() += 1;
-        let mask = hashmap_get_mut_or(&mut map, p.repr, p.mask);
-        *mask |= p.mask;
+
+        match hashmap_get_mut_or(&mut map, p.repr, p.mask) {
+            Some(mask) => *mask |= p.mask,
+            None => (),
+        }
     }
 
     /// Flush the cache into the queue, ready to start processing the new polyominoes with a new square,

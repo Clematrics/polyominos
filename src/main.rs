@@ -1,6 +1,6 @@
 use polyominos::{database::*, polyomino::*};
 
-const LIMIT: u8 = 10;
+const LIMIT: u8 = 13;
 
 fn main() {
     let mut db = Database::new();
