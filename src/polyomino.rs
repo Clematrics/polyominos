@@ -1,20 +1,30 @@
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Debug};
+use std::hash::Hasher;
 
-use crate::board::*;
+use crate::grid::{are_equal, transfer, Grid};
+use crate::grids::naive::Naive;
 use crate::rotation::Rotation;
 
 #[derive(Copy, Clone)]
-pub struct Polyomino {
+pub struct Polyomino<T>
+where
+    T: Grid,
+{
     pub square_count: u8,
     pub dimension: (u8, u8),
-    pub repr: Board,
-    pub mask: Board,
+    pub repr: T,
+    pub mask: T,
 }
 
-impl Debug for Polyomino {
+impl<T> Debug for Polyomino<T>
+where
+    T: Grid,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for j in (0..SIZE).rev() {
-            for i in 0..SIZE {
+        f.write_fmt(format_args!("Dimensions: {:?}\n", self.dimension))?;
+        for j in (0..self.dimension.1 as usize).rev() {
+            for i in 0..self.dimension.0 as usize {
                 let str = {
                     if self.repr.get(i, j) {
                         if self.mask.get(i, j) {
@@ -37,24 +47,31 @@ impl Debug for Polyomino {
                     format!("\x1b[31m{str}\x1b[m")
                 };
 
-                f.write_str(&to_print).unwrap();
+                f.write_str(&to_print)?;
             }
-            f.write_str("\n").unwrap();
+            if j != 0 {
+                f.write_str("\n")?;
+            }
         }
 
         Ok(())
     }
 }
 
-impl Polyomino {
+impl<T> Polyomino<T>
+where
+    T: Grid,
+{
     pub fn trivial() -> Self {
         let repr = {
-            let mut board = Board::new();
+            let mut board = T::new();
+            board.reserve_space(3, 3);
             board.set(1, 1);
             board
         };
         let mask = {
-            let mut board = Board::new();
+            let mut board = T::new();
+            board.reserve_space(3, 3);
             board.set(1, 0);
             board.set(0, 1);
             board.set(1, 2);
@@ -70,7 +87,7 @@ impl Polyomino {
         }
     }
 
-    pub fn from(dimension: (u8, u8), repr: Board, mask: Board) -> Self {
+    pub fn from(dimension: (u8, u8), repr: T, mask: T) -> Self {
         Self {
             square_count: repr.count() as u8,
             dimension,
@@ -79,11 +96,10 @@ impl Polyomino {
         }
     }
 
-    pub fn add_square(&mut self, mut x: usize, mut y: usize, anti_mask: &Board) {
+    pub fn add_square(&mut self, mut x: usize, mut y: usize, anti_mask: &T) {
         self.square_count += 1;
         // The anti_mask is not shifted like the repr and mask boards, for efficiency reasons
         // Thus, we need offsets on coordinates to access the anti_mask
-        println!("Before {x}, {y}");
         let (mut x_offset, mut y_offset) = (0, 0);
 
         if x + 1 == self.dimension.0 as usize {
@@ -94,23 +110,33 @@ impl Polyomino {
         }
         if x == 0 {
             x_offset = 1;
-            self.repr.shift_x(1);
-            self.mask.shift_x(1);
             self.dimension.0 += 1;
             x += 1;
         }
         if y == 0 {
             y_offset = 1;
-            self.repr.shift_y(1);
-            self.mask.shift_y(1);
             self.dimension.1 += 1;
             y += 1;
         }
-        println!("After {x}, {y}");
         // NOTE: there is no need to optimise for a shift both in x and y,
         // since no square can be added here (otherwise it would not be connected)
 
-        // IDEA: localize addition of a square rather than subtracting a whole mask
+        // Prepare the bounding box.
+        self.repr
+            .reserve_space(self.dimension.0 as usize, self.dimension.1 as usize);
+        self.mask
+            .reserve_space(self.dimension.0 as usize, self.dimension.1 as usize);
+
+        // Apply offsets
+        if x_offset == 1 {
+            self.repr.shift_x(1);
+            self.mask.shift_x(1);
+        }
+        if y_offset == 1 {
+            self.repr.shift_y(1);
+            self.mask.shift_y(1);
+        }
+
         self.repr.set(x, y);
         self.mask.unset(x, y);
         for (x, y) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)].into_iter() {
@@ -120,7 +146,7 @@ impl Polyomino {
                 anti_mask.get(x - x_offset, y - y_offset)
             };
             if !self.repr.get(x, y) && !anti_mask {
-                println!("Set mask at {x}, {y}");
+                // println!("Set mask at {x}, {y}");
                 self.mask.set(x, y)
             };
         }
@@ -128,19 +154,71 @@ impl Polyomino {
 }
 
 /// Return all polyominoes that can be created by adding a square to this polyomino, excluding positions out of the mask
-pub fn decline(p: &Polyomino) -> Vec<Polyomino> {
+pub fn decline<T>(p: &Polyomino<T>) -> Vec<Polyomino<T>>
+where
+    T: Grid,
+{
     let mut polyominoes = vec![];
     // println!("From polyomino:");
     // println!("{p:?}");
 
-    let mut anti_mask = Board::new();
-    for i in 0..SIZE {
-        for j in 0..SIZE {
-            if p.mask.get(i, j) {
+    let mut hasher = DefaultHasher::new();
+    p.repr.hash(&mut hasher);
+    let hash = hasher.finish();
+    println!("Hash is {:}", hash);
+
+    let mut mask_witness = transfer::<_, Naive>(&p.mask);
+    let mut anti_mask_witness = Naive::new();
+    anti_mask_witness.reserve_space((p.dimension.0 + 1) as usize, (p.dimension.1 + 1) as usize);
+
+    let mut mask = p.mask.clone();
+    let mut anti_mask = T::new();
+    anti_mask.reserve_space((p.dimension.0 + 1) as usize, (p.dimension.1 + 1) as usize);
+    println!("Mask is\n{:?}\nWitness mask is\n{:?}", mask, mask_witness);
+    for x in 0..p.dimension.0 as usize {
+        for y in 0..p.dimension.1 as usize {
+            if p.mask.get(x, y) {
                 // add a new polyomino
-                let mut new_p = p.clone();
-                new_p.add_square(i, j, &anti_mask);
-                anti_mask.set(i, j);
+                let mut new_p = Polyomino {
+                    square_count: p.square_count,
+                    dimension: p.dimension,
+                    repr: p.repr.clone(),
+                    mask: mask.clone(),
+                };
+
+                let mut witness = Polyomino::<Naive> {
+                    square_count: p.square_count,
+                    dimension: p.dimension,
+                    repr: transfer(&p.repr),
+                    mask: mask_witness.clone(),
+                };
+
+                println!("Add square at {x},{y}");
+                new_p.add_square(x, y, &anti_mask);
+                anti_mask.set(x, y);
+                mask.unset(x, y);
+
+                witness.add_square(x, y, &anti_mask_witness);
+                anti_mask_witness.set(x, y);
+                mask_witness.unset(x, y);
+
+                println!(
+                    "Now polyomino of dim {:?}:\n{:?}\nWith mask\n{:?}",
+                    new_p.dimension, new_p.repr, new_p.mask
+                );
+                println!(
+                    "Now witness of dim {:?}:\n{:?}\nWith mask\n{:?}",
+                    witness.dimension, witness.repr, witness.mask
+                );
+
+                are_equal(&witness.repr, &new_p.repr);
+                are_equal(&witness.mask, &new_p.mask);
+                are_equal(&mask_witness, &mask);
+                are_equal(&anti_mask_witness, &anti_mask);
+
+                // println!("new_p repr:\n{:?}", new_p.repr);
+                // println!("new_p mask:\n{:?}", new_p.mask);
+                // println!("anti-mask:\n{:?}", anti_mask);
 
                 // println!("	- declined polyomino (added at {i},{j}):");
                 // println!("{new_p:?}");
@@ -158,71 +236,58 @@ pub fn decline(p: &Polyomino) -> Vec<Polyomino> {
     polyominoes
 }
 
-pub fn smallest_rotation(p: Polyomino) -> Polyomino {
+pub fn smallest_rotation<T>(p: Polyomino<T>) -> (Polyomino<T>, Rotation)
+where
+    T: Grid,
+{
     // Take smallest dimension first
     if p.dimension.0 < p.dimension.1 {
         // Only compare rotation 0 and rotation 180
-        let rotated_board = p.repr.rotate(p.dimension, &Rotation::R180);
-        println!(
-            "180 rotation:\n{:?}",
-            Polyomino::from(p.dimension, rotated_board, Board::new())
-        );
+        let rotated_board = p.repr.rotate(p.dimension, Rotation::R180);
         if p.repr < rotated_board {
-            p
+            (p, Rotation::R0)
         } else {
-            Polyomino {
-                square_count: p.square_count,
-                dimension: p.dimension,
-                repr: rotated_board,
-                mask: p.mask.rotate(p.dimension, &Rotation::R180),
-            }
+            (
+                Polyomino {
+                    square_count: p.square_count,
+                    dimension: p.dimension,
+                    repr: rotated_board,
+                    mask: p.mask.rotate(p.dimension, Rotation::R180),
+                },
+                Rotation::R180,
+            )
         }
     } else if p.dimension.0 > p.dimension.1 {
         // Compare rotations 90 and 270
-        let board_90 = p.repr.rotate(p.dimension, &Rotation::R90);
-        let board_270 = p.repr.rotate(p.dimension, &Rotation::R270);
-        println!(
-            "90 rotation:\n{:?}",
-            Polyomino::from(p.dimension, board_90, Board::new())
-        );
-        println!(
-            "270 rotation:\n{:?}",
-            Polyomino::from(p.dimension, board_270, Board::new())
-        );
+        let board_90 = p.repr.rotate(p.dimension, Rotation::R90);
+        let board_270 = p.repr.rotate(p.dimension, Rotation::R270);
         if board_90 < board_270 {
-            Polyomino {
-                square_count: p.square_count,
-                dimension: (p.dimension.1, p.dimension.0),
-                repr: board_90,
-                mask: p.mask.rotate(p.dimension, &Rotation::R90),
-            }
+            (
+                Polyomino {
+                    square_count: p.square_count,
+                    dimension: (p.dimension.1, p.dimension.0),
+                    repr: board_90,
+                    mask: p.mask.rotate(p.dimension, Rotation::R90),
+                },
+                Rotation::R90,
+            )
         } else {
-            Polyomino {
-                square_count: p.square_count,
-                dimension: (p.dimension.1, p.dimension.0),
-                repr: board_270,
-                mask: p.mask.rotate(p.dimension, &Rotation::R270),
-            }
+            (
+                Polyomino {
+                    square_count: p.square_count,
+                    dimension: (p.dimension.1, p.dimension.0),
+                    repr: board_270,
+                    mask: p.mask.rotate(p.dimension, Rotation::R270),
+                },
+                Rotation::R270,
+            )
         }
     } else {
         // Dimensions are equal
         // Compare all rotations
-        let board_90 = p.repr.rotate(p.dimension, &Rotation::R90);
-        let board_180 = p.repr.rotate(p.dimension, &Rotation::R180);
-        let board_270 = p.repr.rotate(p.dimension, &Rotation::R270);
-
-        println!(
-            "90 rotation:\n{:?}",
-            Polyomino::from(p.dimension, board_90, Board::new())
-        );
-        println!(
-            "180 rotation:\n{:?}",
-            Polyomino::from(p.dimension, board_180, Board::new())
-        );
-        println!(
-            "270 rotation:\n{:?}",
-            Polyomino::from(p.dimension, board_270, Board::new())
-        );
+        let board_90 = p.repr.rotate(p.dimension, Rotation::R90);
+        let board_180 = p.repr.rotate(p.dimension, Rotation::R180);
+        let board_270 = p.repr.rotate(p.dimension, Rotation::R270);
 
         // Comparison by pairs : (p, board_180) and (board_90, board_270)
         let (smallest_1, rot1) = {
@@ -242,19 +307,25 @@ pub fn smallest_rotation(p: Polyomino) -> Polyomino {
 
         // Then compare the smallest of each pair
         if smallest_1 < smallest_2 {
-            Polyomino {
-                square_count: p.square_count,
-                dimension: p.dimension,
-                repr: smallest_1,
-                mask: p.mask.rotate(p.dimension, &rot1),
-            }
+            (
+                Polyomino {
+                    square_count: p.square_count,
+                    dimension: p.dimension,
+                    repr: smallest_1,
+                    mask: p.mask.rotate(p.dimension, rot1),
+                },
+                rot1,
+            )
         } else {
-            Polyomino {
-                square_count: p.square_count,
-                dimension: p.dimension,
-                repr: smallest_2,
-                mask: p.mask.rotate(p.dimension, &rot2),
-            }
+            (
+                Polyomino {
+                    square_count: p.square_count,
+                    dimension: p.dimension,
+                    repr: smallest_2,
+                    mask: p.mask.rotate(p.dimension, rot2),
+                },
+                rot2,
+            )
         }
     }
 }
