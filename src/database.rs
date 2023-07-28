@@ -2,19 +2,23 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     hash::Hash,
     mem::replace,
+    ops::BitOrAssign,
 };
 
-use crate::{board::Board, polyomino::Polyomino};
+use crate::{grid::Grid, grids::block_grid::BlockGrid, polyomino::Polyomino};
 
 /// The database holds three things:
 /// - the number of polyominoes with some square amount, if all have been processed
 /// - the queue of unprocessed polyominoes of the last square amount
 /// - the cache of polyominoes for the next amount
 /// - stats by square amount
-pub struct Database {
+pub struct Database<T>
+where
+    T: Grid,
+{
     counts: Vec<u128>,
-    queue: VecDeque<Polyomino>,
-    cache: BTreeMap<(u8, u8), HashMap<Board, Board>>,
+    queue: VecDeque<Polyomino<T>>,
+    cache: BTreeMap<(u8, u8), HashMap<T, T>>,
     stats: Vec<u128>,
 }
 
@@ -33,7 +37,7 @@ where
 /// Returns None if the value is added, returns the value already stored otherwise
 fn hashmap_get_mut_or<K, V>(map: &mut HashMap<K, V>, key: K, v: V) -> Option<&mut V>
 where
-    K: Ord + Copy + Hash,
+    K: Ord + Hash,
 {
     if !map.contains_key(&key) {
         map.insert(key, v);
@@ -43,7 +47,10 @@ where
     }
 }
 
-impl Database {
+impl<T> Database<T>
+where
+    T: Grid + Ord + Hash + BitOrAssign,
+{
     pub fn new() -> Self {
         let mut queue = VecDeque::new();
         queue.push_back(Polyomino::trivial());
@@ -56,17 +63,17 @@ impl Database {
         }
     }
 
-    pub fn pop(&mut self) -> Option<Polyomino> {
+    pub fn pop(&mut self) -> Option<Polyomino<T>> {
         self.queue.pop_front()
     }
 
     /// Register the polyomino in the cache
-    pub fn register(&mut self, p: Polyomino) {
+    pub fn register(&mut self, p: Polyomino<T>) {
         let mut map = treemap_get_mut_or(&mut self.cache, p.dimension, || HashMap::new());
 
         *self.stats.last_mut().unwrap() += 1;
 
-        match hashmap_get_mut_or(&mut map, p.repr, p.mask) {
+        match hashmap_get_mut_or(&mut map, p.repr, p.mask.clone()) {
             Some(mask) => *mask |= p.mask,
             None => (),
         }
