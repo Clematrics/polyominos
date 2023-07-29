@@ -5,7 +5,7 @@ use std::{
     ops::BitOrAssign,
 };
 
-use crate::{grid::Grid, grids::block_grid::BlockGrid, polyomino::Polyomino};
+use crate::{grid::Grid, polyomino::Polyomino};
 
 /// The database holds three things:
 /// - the number of polyominoes with some square amount, if all have been processed

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::ops::BitOrAssign;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -34,7 +33,7 @@ where
         let declinaison = polyomino::decline(&p);
 
         for p in declinaison.into_iter() {
-            let (smallest, r) = polyomino::smallest_rotation(p);
+            let (smallest, _r) = polyomino::smallest_rotation(p);
             db.register(smallest);
         }
     }

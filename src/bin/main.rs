@@ -32,7 +32,7 @@ fn main() {
             // println!("p repr:\n{:?}", p.repr);
             // println!("p mask:\n{:?}", p.mask);
 
-            let mut witness = Polyomino::<Naive> {
+            let witness = Polyomino::<Naive> {
                 square_count: p.square_count,
                 dimension: p.dimension,
                 repr: transfer(&p.repr),

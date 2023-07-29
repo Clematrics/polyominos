@@ -1,9 +1,6 @@
-use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Debug};
-use std::hash::Hasher;
 
-use crate::grid::{are_equal, transfer, Grid};
-use crate::grids::naive::Naive;
+use crate::grid::Grid;
 use crate::rotation::Rotation;
 
 #[derive(Copy, Clone)]
@@ -288,6 +285,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::hash_map::DefaultHasher, hash::Hasher};
+
+    use crate::{
+        grid::{are_equal, transfer},
+        grids::naive::Naive,
+    };
+
     use super::*;
 
     fn check_decline<T>(p: Polyomino<T>) -> Vec<Polyomino<T>>

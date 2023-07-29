@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Binary, Debug},
-    ops::{BitOrAssign, Deref, DerefMut},
-};
+use std::{fmt::Debug, ops::BitOrAssign};
 
 // #[repr(transparent)]
 // struct Block(u16);

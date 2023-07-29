@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, ops::BitAndAssign};
+use std::{fmt::Debug, hash::Hash};
 
 use crate::rotation::Rotation;
 
