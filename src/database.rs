@@ -63,6 +63,10 @@ where
         }
     }
 
+    pub fn to_queue(self) -> VecDeque<Polyomino<T>> {
+        self.queue
+    }
+
     pub fn pop(&mut self) -> Option<Polyomino<T>> {
         self.queue.pop_front()
     }

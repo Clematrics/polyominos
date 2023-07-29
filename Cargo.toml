@@ -8,4 +8,9 @@ edition = "2021"
 [dependencies]
 
 [dev-dependencies]
+criterion = "0.3"
 paste = "1.*"
+
+[[bench]]
+name = "polyomino_benchmark"
+harness = false
