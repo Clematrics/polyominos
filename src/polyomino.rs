@@ -159,17 +159,6 @@ where
     T: Grid,
 {
     let mut polyominoes = vec![];
-    // println!("From polyomino:");
-    // println!("{p:?}");
-
-    let mut hasher = DefaultHasher::new();
-    // p.repr.hash(&mut hasher);
-    // let hash = hasher.finish();
-    // println!("Hash is {:}", hash);
-
-    // let mut mask_witness = transfer::<_, Naive>(&p.mask);
-    // let mut anti_mask_witness = Naive::new();
-    // anti_mask_witness.reserve_space((p.dimension.0 + 1) as usize, (p.dimension.1 + 1) as usize);
 
     let mut mask = p.mask.clone();
     let mut anti_mask = T::new();
@@ -185,43 +174,10 @@ where
                     repr: p.repr.clone(),
                     mask: mask.clone(),
                 };
-
-                // let mut witness = Polyomino::<Naive> {
-                //     square_count: p.square_count,
-                //     dimension: p.dimension,
-                //     repr: transfer(&p.repr),
-                //     mask: mask_witness.clone(),
-                // };
-
-                // println!("Add square at {x},{y}");
                 new_p.add_square(x, y, &anti_mask);
                 anti_mask.set(x, y);
                 mask.unset(x, y);
 
-                // witness.add_square(x, y, &anti_mask_witness);
-                // anti_mask_witness.set(x, y);
-                // mask_witness.unset(x, y);
-
-                // println!(
-                //     "Now polyomino of dim {:?}:\n{:?}\nWith mask\n{:?}",
-                //     new_p.dimension, new_p.repr, new_p.mask
-                // );
-                // println!(
-                //     "Now witness of dim {:?}:\n{:?}\nWith mask\n{:?}",
-                //     witness.dimension, witness.repr, witness.mask
-                // );
-
-                // are_equal(&witness.repr, &new_p.repr);
-                // are_equal(&witness.mask, &new_p.mask);
-                // are_equal(&mask_witness, &mask);
-                // are_equal(&anti_mask_witness, &anti_mask);
-
-                // println!("new_p repr:\n{:?}", new_p.repr);
-                // println!("new_p mask:\n{:?}", new_p.mask);
-                // println!("anti-mask:\n{:?}", anti_mask);
-
-                // println!("	- declined polyomino (added at {i},{j}):");
-                // println!("{new_p:?}");
                 polyominoes.push(new_p);
             }
         }
@@ -327,5 +283,64 @@ where
                 rot2,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check_decline<T>(p: Polyomino<T>) -> Vec<Polyomino<T>>
+    where
+        T: Grid,
+    {
+        let mut polyominoes = vec![];
+
+        let mut hasher = DefaultHasher::new();
+        p.repr.hash(&mut hasher);
+        let hash = hasher.finish();
+        println!("Hash is {:}", hash);
+        let mut mask_witness = transfer::<_, Naive>(&p.mask);
+        let mut anti_mask_witness = Naive::new();
+        anti_mask_witness.reserve_space((p.dimension.0 + 1) as usize, (p.dimension.1 + 1) as usize);
+
+        let mut mask = p.mask.clone();
+        let mut anti_mask = T::new();
+        anti_mask.reserve_space((p.dimension.0 + 1) as usize, (p.dimension.1 + 1) as usize);
+        for x in 0..p.dimension.0 as usize {
+            for y in 0..p.dimension.1 as usize {
+                if p.mask.get(x, y) {
+                    // add a new polyomino
+                    let mut new_p = Polyomino {
+                        square_count: p.square_count,
+                        dimension: p.dimension,
+                        repr: p.repr.clone(),
+                        mask: mask.clone(),
+                    };
+                    new_p.add_square(x, y, &anti_mask);
+                    anti_mask.set(x, y);
+                    mask.unset(x, y);
+
+                    let mut witness = Polyomino::<Naive> {
+                        square_count: p.square_count,
+                        dimension: p.dimension,
+                        repr: transfer(&p.repr),
+                        mask: mask_witness.clone(),
+                    };
+                    witness.add_square(x, y, &anti_mask_witness);
+                    anti_mask_witness.set(x, y);
+                    mask_witness.unset(x, y);
+
+                    are_equal(&witness.repr, &new_p.repr);
+                    are_equal(&witness.mask, &new_p.mask);
+                    are_equal(&mask_witness, &mask);
+                    are_equal(&anti_mask_witness, &anti_mask);
+
+                    polyominoes.push(new_p);
+                }
+            }
+        }
+
+        polyominoes
     }
 }

@@ -18,6 +18,8 @@ impl Block {
         let x_mask = 0x000F << (x * 4);
         let bit = self.0 & x_mask & y_mask;
         bit != 0
+
+        // TODO: compare to self.0 & (1 << (x * 4 | y)) != 0
     }
 
     fn set(&self, x: usize, y: usize) -> Self {
@@ -28,6 +30,8 @@ impl Block {
         let bit = x_mask & y_mask;
 
         Self(self.0 | bit)
+
+        // TODO: compare to self.0 | (1 << (x * 4 | y))
     }
 
     fn unset(&self, x: usize, y: usize) -> Self {
@@ -39,6 +43,8 @@ impl Block {
         let mask = !(x_mask & y_mask);
 
         Self(self.0 & mask)
+
+        // TODO: compare to self.0 & (0xF...FE << (x * 4 | y))
     }
 
     fn is_empty(&self) -> bool {
@@ -153,6 +159,131 @@ impl Block {
             (Self(new_block), shift_out)
         }
     }
+
+    fn batch_2_rotate_90_avx2(chunk: [u16; 2]) -> (u16, u16) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let mm_high = _mm_set1_epi16(x1 as i16);
+            let mm_low = _mm_set1_epi16(x2 as i16);
+
+            let mm = _mm256_set_m128i(mm_high, mm_low);
+
+            #[allow(overflowing_literals)]
+            let mask_part = _mm_set_epi64x(0x8080404020201010, 0x0808040402020101);
+            let mask = _mm256_set_m128i(mask_part, mask_part);
+
+            let bits = _mm256_and_si256(mm, mask);
+            let cmp = _mm256_cmpeq_epi8(bits, mask);
+
+            let shuffler_part = _mm_set_epi8(9, 1, 8, 0, 11, 3, 10, 2, 13, 5, 12, 4, 15, 7, 14, 6);
+            let shuffler = _mm256_set_m128i(shuffler_part, shuffler_part);
+
+            let shuffled = _mm256_shuffle_epi8(cmp, shuffler);
+
+            let result = _mm256_movemask_epi8(shuffled) as u32;
+            let result_high = (result >> 16) as u16;
+            let result_low = (result & 0xFFFF) as u16;
+            (result_high, result_low)
+        }
+    }
+
+    fn batch_2_rotate_180_avx2(x1: u16, x2: u16) -> (u16, u16) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let mm_high = _mm_set1_epi16(x1 as i16);
+            let mm_low = _mm_set1_epi16(x2 as i16);
+
+            let mm = _mm256_set_m128i(mm_high, mm_low);
+
+            #[allow(overflowing_literals)]
+            let mask_part = _mm_set_epi64x(0x8080404020201010, 0x0808040402020101);
+            let mask = _mm256_set_m128i(mask_part, mask_part);
+
+            let bits = _mm256_and_si256(mm, mask);
+            let cmp = _mm256_cmpeq_epi8(bits, mask);
+
+            let shuffler_part = _mm_set_epi8(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15);
+            let shuffler = _mm256_set_m128i(shuffler_part, shuffler_part);
+
+            let shuffled = _mm256_shuffle_epi8(cmp, shuffler);
+
+            let result = _mm256_movemask_epi8(shuffled) as u32;
+            let result_high = (result >> 16) as u16;
+            let result_low = (result & 0xFFFF) as u16;
+            (result_high, result_low)
+        }
+    }
+
+    fn batch_2_rotate_270_avx2(x1: u16, x2: u16) -> (u16, u16) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let mm_high = _mm_set1_epi16(x1 as i16);
+            let mm_low = _mm_set1_epi16(x2 as i16);
+
+            let mm = _mm256_set_m128i(mm_high, mm_low);
+
+            #[allow(overflowing_literals)]
+            let mask_part = _mm_set_epi64x(0x8080404020201010, 0x0808040402020101);
+            let mask = _mm256_set_m128i(mask_part, mask_part);
+
+            let bits = _mm256_and_si256(mm, mask);
+            let cmp = _mm256_cmpeq_epi8(bits, mask);
+
+            let shuffler_part = _mm_set_epi8(6, 14, 7, 15, 4, 12, 5, 13, 2, 10, 3, 11, 0, 8, 1, 9);
+            let shuffler = _mm256_set_m128i(shuffler_part, shuffler_part);
+
+            let shuffled = _mm256_shuffle_epi8(cmp, shuffler);
+
+            let result = _mm256_movemask_epi8(shuffled) as u32;
+            let result_high = (result >> 16) as u16;
+            let result_low = (result & 0xFFFF) as u16;
+            (result_high, result_low)
+        }
+    }
+
+    // fn batch_2_rotate_90_avx512(x1: u16, x2: u16, x3: u16, x4: u16) -> (u16, u16) {
+    //     use std::arch::x86_64::*;
+
+    //     unsafe {
+    //         let mm_high = _mm_set1_epi16(x1 as i16);
+    //         let mm_low = _mm_set1_epi16(x2 as i16);
+
+    //         // let x1 = (x1 as u16) as u64;
+    //         // let x2 = (x2 as u16) as u64;
+    //         // let x3 = (x3 as u16) as u64;
+    //         // let x4 = (x4 as u16) as u64;
+    //         // let ex = ((x1 << 48) | (x2 << 32) | (x3 << 16) | x4) as i64;
+
+    //         // unsafe {
+    //         //     let mm = _mm512_set1_epi64(ex);
+    //         //     _mm512_shuffle_epi8
+    //         //     let res = _mm512_cmpeq_epi8_mask(mm, mm);
+    //         //     (res & 0xFFFF) as i16
+    //         // }
+
+    //         let mm = _mm256_set_m128i(mm_high, mm_low);
+
+    //         #[allow(overflowing_literals)]
+    //         let mask_part = _mm_set_epi64x(0x8080404020201010, 0x0808040402020101);
+    //         let mask = _mm256_set_m128i(mask_part, mask_part);
+
+    //         let bits = _mm256_and_si256(mm, mask);
+    //         let cmp = _mm256_cmpeq_epi8(bits, mask);
+
+    //         let shuffler_part = _mm_set_epi8(9, 1, 8, 0, 11, 3, 10, 2, 13, 5, 12, 4, 15, 7, 14, 6);
+    //         let shuffler = _mm256_set_m128i(shuffler_part, shuffler_part);
+
+    //         let shuffled = _mm512_shuffle_epi32(cmp, shuffler);
+
+    //         let result = _mm256_movemask_epi8(shuffled) as u32;
+    //         let result_high = (result >> 16) as u16;
+    //         let result_low = (result & 0xFFFF) as u16;
+    //         (result_high, result_low)
+    //     }
+    // }
 
     fn rotate_270(x: u16) -> u16 {
         // Rotating by 270 degree
@@ -465,10 +596,33 @@ impl Grid for BlockGrid {
                 let mut block_grid = BlockGrid::new();
                 block_grid.reserve_space(dim.1 as usize, dim.0 as usize);
 
+                let (x, y) = dim;
+                let columns_wanted = x / 4 + if x % 4 == 0 { 0 } else { 1 };
+                let rows_wanted = y / 4 + if y % 4 == 0 { 0 } else { 1 };
+                let mut tmp = vec![Block::default(); (columns_wanted * rows_wanted) as usize];
+                tmp.copy_from_slice(block_grid.grid.as_slice());
+
+                // TODO: replace with ArrayChunk once released from nightly
+                let mut iter = tmp.as_mut_slice().chunks_exact_mut(2);
+                while let Some(chunk) = iter.next() {
+                    // let (x1, x2) = Block::batch_2_rotate_90_avx2(chunk[0].0, chunk[0].0);
+                    // chunk[0] = Block(x1);
+                    // chunk[1] = Block(x2);
+                    unsafe {
+                        let (Block(x1), Block(x2)) =
+                            (chunk.get_unchecked(0), chunk.get_unchecked(1));
+                        let (x1, x2) = Block::batch_2_rotate_90_avx2(*x1, *x2);
+                        *chunk.get_unchecked_mut(0) = Block(x1);
+                        *chunk.get_unchecked_mut(1) = Block(x2);
+                    }
+                }
+                for block in iter.into_remainder().into_iter() {
+                    *block = block.rotate(Rotation::R90);
+                }
+
                 for x in 0..self.dim.0 {
                     for y in 0..self.dim.1 {
-                        *block_grid.get_block_mut(self.dim.1 - 1 - y, x) =
-                            self.get_block(x, y).rotate(Rotation::R90);
+                        *block_grid.get_block_mut(self.dim.1 - 1 - y, x) = tmp[x * self.dim.1 + y];
                     }
                 }
 
